@@ -45,10 +45,16 @@ xvfb.on('spawn', () => {
         console.log("Streaming socket baseline prepared (8081).");
     }, 2000);
 
-    // 5. Fire up the native Chromium window inside display :1 and load Google automatically
+    // 5. Fire up the native Chromium window inside display :1 with environment binary checking
     setTimeout(() => {
-        console.log("Launching visual Chromium engine window...");
-        spawn('chromium', [
+        // Detect whether the system binary uses 'chromium-browser' (Ubuntu) or 'chromium' (Alpine/Debian)
+        let binaryCmd = 'chromium';
+        if (fs.existsSync('/usr/bin/chromium-browser')) {
+            binaryCmd = 'chromium-browser';
+        }
+
+        console.log(`Launching visual Chromium engine window via target: ${binaryCmd}`);
+        spawn(binaryCmd, [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-gpu',
@@ -92,3 +98,5 @@ app.listen(port, '0.0.0.0', () => {
     console.log(`Access your unified instance on Port: ${port}`);
     console.log(`======================================================\n`);
 });
+
+

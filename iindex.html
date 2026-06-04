@@ -4,6 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visual Web-Browser Workspace Controller</title>
+    
+    <!-- We inject noVNC directly into the main document using a secure module script, completely bypassing iframes -->
+    <script type="module">
+        import RFB from './vnc_core/core/rfb.js';
+        
+        let rfb;
+        const currentHost = window.location.host; // Dynamically gets your full port 8080 url
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        
+        // Maps the stream through your safe main URL path, making it look like a regular webpage to filters
+        const streamUrl = `${protocol}://${currentHost}/websockify`;
+
+        function initDisplay() {
+            const container = document.getElementById('browserDisplayContainer');
+            
+            // Render the browser screen canvas straight into the layout
+            rfb = new RFB(container, streamUrl);
+            rfb.scaleViewport = true;
+            rfb.background = 'rgb(15, 23, 42)';
+        }
+
+        window.onload = initDisplay;
+    </script>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -40,53 +63,30 @@
             width: 100%;
             max-width: 1280px;
             flex-grow: 1;
-            background: #000;
+            background: #0b0f19;
             border: 2px solid var(--card-bg);
             border-top: none;
             border-radius: 0 0 8px 8px;
             overflow: hidden;
             position: relative;
         }
-        iframe {
+        #browserDisplayContainer {
             width: 100%;
             height: 100%;
-            border: none;
-            background: #000;
         }
     </style>
-    <!-- Embedded Search Engine Parameter Signatures -->
-    <script nonce="hVlu0BSU7tE7KRs0SzB-Ww">
-        window.WIZ_global_data = {"AfY8Hf":false,"FL1an":false,"MuJWjd":false,"MUE6Ne":"web_front"};
-        var _g={kEI:'ZYEhareLD-uc4-EPiLjSgQs',kBL:'DSG6',kOPI:89978449};
-    </script>
 </head>
 <body>
 
 <div class="header">
     <h1>Visual Browser Instance</h1>
-    <span style="color: #38bdf8; font-weight: bold; font-size: 0.9rem;">● DISPLAY ENVIRONMENT MAP READY</span>
+    <span style="color: #22c55e; font-weight: bold; font-size: 0.9rem;">● UNIFIED PROXY STREAM LIVE</span>
 </div>
 
 <div class="browser-container">
-    <!-- Embedded VNC Video stream mapping container layer -->
-    <iframe id="streamFrame" src=""></iframe>
+    <!-- No iframe used here. The actual visual layout draws right onto this division -->
+    <div id="browserDisplayContainer"></div>
 </div>
-
-<script>
-    // Dynamically routes target loopbacks based on hosting cloud provider
-    const currentHost = window.location.hostname;
-    
-    // Default location proxy fallback (Port 8081 stream mapping)
-    let streamUrl = `http://${currentHost}:8081/vnc.html?autoconnect=true&resize=scale`;
-    
-    if (currentHost.includes('github.dev') || currentHost.includes('app.github.dev')) {
-        // Formats routing schemas cleanly if tracking inside live GitHub Codespaces
-        const baseWorkspaceUrl = window.location.href;
-        streamUrl = baseWorkspaceUrl.replace('-8080.', '-8081.');
-    }
-    
-    document.getElementById('streamFrame').src = streamUrl;
-</script>
 
 </body>
 </html>
