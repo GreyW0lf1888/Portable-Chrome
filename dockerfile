@@ -1,5 +1,23 @@
 FROM node:20-noble
 
+RUN npm install express http-proxy-middleware
+
+RUN sudo apt-get install -y novnc python3-websockify
+
+
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    xvfb \
+    fluxbox \
+    x11vnc \
+    novnc \
+    python3-websockify \
+    python3 \
+    ca-certificates \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the updated modern Linux GUI/system libraries required for Ubuntu 24.04+ Noble
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -36,6 +54,8 @@ WORKDIR /app
 # 1. Copy over ALL your application source files first (including iindex.html)
 COPY . .
 
+RUN npm install --only=production
+
 # 2. Install production dependencies cleanly
 RUN npm ci --only=production || npm install --only=production
 
@@ -44,6 +64,7 @@ RUN npm run install-chrome
 
 # Render exposes application ports using the PORT environment variable
 EXPOSE 8080
+EXPOSE 8081
 
 # Command to start your application launcher script
 CMD ["npm", "start"]

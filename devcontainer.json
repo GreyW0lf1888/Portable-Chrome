@@ -1,0 +1,18 @@
+{
+    "name": "Visual Chromium Container Setup",
+    "forwardPorts": [8080],
+    "portsAttributes": {
+        "8080": {
+            "label": "Web Dashboard Interface",
+            "onAutoForward": "openBrowser"
+        },
+        "5900": {
+            "label": "Blocked VNC Stream",
+            "onAutoForward": "ignore"
+        },
+        "8081": {
+            "label": "Internal WebSockets",
+            "onAutoForward": "ignore"
+        }
+    }
+}
