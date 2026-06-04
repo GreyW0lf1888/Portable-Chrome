@@ -7,13 +7,17 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- CRITICAL PORT SANITISER LOCK ---
-// Forcefully cleans stuck container tasks on initialization to prevent port fragmentation
+// --- CRITICAL LINUX SYSTEM LOCK SANITISER ---
 try {
-    console.log("Purging legacy container processes to unlock ports...");
+    console.log("Purging legacy container processes and virtual display sockets...");
+    // Kill running instances
     execSync('killall -9 Xvfb fluxbox x11vnc python3 2>/dev/null');
+    
+    // Clear hidden Linux framebuffer lock files that force runaway displays/ports
+    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null');
+    console.log("Environment cleanup complete.");
 } catch (e) {
-    // Process tree is already unallocated
+    // Environment files are already fresh
 }
 
 console.log("Initializing visual environment layers...");
@@ -27,7 +31,7 @@ xvfb.on('spawn', () => {
     // 2. Start the desktop window layer manager inside display :1
     spawn('fluxbox', [], { env: { DISPLAY: ':1' } });
 
-    // 3. Start the VNC engine and hard-lock it to raw port 5900 to block runaway ports (5901+)
+    // 3. Start the VNC engine and hard-lock it to raw port 5900
     spawn('x11vnc', [
         '-display', ':1', 
         '-rfbport', '5900', // STRICT PORT RESOURCE LOCK
@@ -47,7 +51,6 @@ xvfb.on('spawn', () => {
 
     // 5. Fire up the native Chromium window inside display :1 with environment binary checking
     setTimeout(() => {
-        // Detect whether the system binary uses 'chromium-browser' (Ubuntu) or 'chromium' (Alpine/Debian)
         let binaryCmd = 'chromium';
         if (fs.existsSync('/usr/bin/chromium-browser')) {
             binaryCmd = 'chromium-browser';
@@ -59,7 +62,7 @@ xvfb.on('spawn', () => {
             '--disable-setuid-sandbox',
             '--disable-gpu',
             '--start-maximized',
-            '--js-flags="--max-old-space-size=400"', // Resource caps for cloud hosting
+            '--js-flags="--max-old-space-size=400"', 
             '--no-zygote',
             '--single-process',
             'https://google.com'
@@ -98,5 +101,3 @@ app.listen(port, '0.0.0.0', () => {
     console.log(`Access your unified instance on Port: ${port}`);
     console.log(`======================================================\n`);
 });
-
-
