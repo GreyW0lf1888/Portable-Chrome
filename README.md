@@ -1,2 +1,2 @@
-# Minecraft-1.19.22.01
-MInecraft 1.19, literally.
+Chromium instance
+A portable chromium instance. Not much can be said, so far unusable, but I will manage.
