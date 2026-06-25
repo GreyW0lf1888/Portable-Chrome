@@ -3,19 +3,20 @@
     "build": {
         "dockerfile": "dockerfile"
     },
+    // Only permit port 8080 to be exposed to the public link layer
     "forwardPorts": [8080],
     "portsAttributes": {
         "8080": {
             "label": "Web Dashboard Interface",
-            "onAutoForward": "openBrowser"
-        }
-    },
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "continue.continue"
-            ]
+            "onAutoForward": "openBrowser" // Tells GitHub to automatically open THIS port in your browser
+        },
+        "8081": {
+            "label": "Internal WebSockets Proxy",
+            "onAutoForward": "silent" // Keep it forwarded in the background, but do not open a tab
+        },
+        "5900": {
+            "label": "Blocked Raw VNC Stream",
+            "onAutoForward": "ignore" // HARD-BLOCK: Prevents GitHub from creating a 5900 URL entirely
         }
     }
 }
-
