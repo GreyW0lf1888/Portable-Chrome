@@ -4,89 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visual Web-Browser Workspace Controller</title>
-    
-    <!-- We inject noVNC directly into the main document using a secure module script, completely bypassing iframes -->
     <script type="module">
-        import RFB from './vnc_core/core/rfb.js';
+        import RFB from 'https://jsdelivr.net';
         
         let rfb;
-        const currentHost = window.location.host; // Dynamically gets your full port 8080 url
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        
-        // Maps the stream through your safe main URL path, making it look like a regular webpage to filters
-        const streamUrl = `${protocol}://${currentHost}/websockify`;
-
-        function initDisplay() {
+        window.onload = () => {
             const container = document.getElementById('browserDisplayContainer');
+            const streamUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/websockify`;
             
-            // Render the browser screen canvas straight into the layout
-            rfb = new RFB(container, streamUrl);
+            rfb = new RFB(container, streamUrl, { shared: true });
             rfb.scaleViewport = true;
+            rfb.resizeSession = true; // Enables active server display scaling handlers
             rfb.background = 'rgb(15, 23, 42)';
-        }
-
-        window.onload = initDisplay;
+        };
     </script>
     <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --accent: #38bdf8;
-            --text: #f8fafc;
-        }
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text);
-            margin: 0;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-            box-sizing: border-box;
-        }
-        .header {
-            width: 100%;
-            max-width: 1280px;
-            background: var(--card-bg);
-            padding: 1rem;
-            border-radius: 8px 8px 0 0;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-sizing: border-box;
-        }
-        h1 { color: var(--accent); margin: 0; font-size: 1.25rem; }
-        .browser-container {
-            width: 100%;
-            max-width: 1280px;
-            flex-grow: 1;
-            background: #0b0f19;
-            border: 2px solid var(--card-bg);
-            border-top: none;
-            border-radius: 0 0 8px 8px;
-            overflow: hidden;
-            position: relative;
-        }
-        #browserDisplayContainer {
-            width: 100%;
-            height: 100%;
-        }
+        body { margin: 0; background: #0f172a; height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #1e293b; padding: 1rem; color: #38bdf8; display: flex; justify-content: space-between; font-family: sans-serif; }
+        .browser-container { flex-grow: 1; background: #0b0f19; overflow: hidden; }
+        #browserDisplayContainer { width: 100%; height: 100%; }
     </style>
 </head>
 <body>
-
-<div class="header">
-    <h1>Visual Browser Instance</h1>
-    <span style="color: #22c55e; font-weight: bold; font-size: 0.9rem;">● UNIFIED PROXY STREAM LIVE</span>
-</div>
-
-<div class="browser-container">
-    <!-- No iframe used here. The actual visual layout draws right onto this division -->
-    <div id="browserDisplayContainer"></div>
-</div>
-
+    <div class="header">
+        <span>Visual Browser Instance</span>
+        <span style="color: #22c55e;">● UNIFIED PROXY STREAM LIVE</span>
+    </div>
+    <div class="browser-container">
+        <div id="browserDisplayContainer"></div>
+    </div>
 </body>
 </html>

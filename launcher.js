@@ -2,6 +2,7 @@ const { spawn, execSync } = require('child_process');
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const http = require('http'); 
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
@@ -28,17 +29,28 @@ const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x24']);
 xvfb.on('spawn', () => {
     console.log("Virtual monitor frame allocated successfully (:1).");
     
+    // CRITICAL ENGINE OPTIMIZATION: Enforce structural full-HD mode scaling onto display output canvas
+    try {
+        execSync('xrandr --display :1 --output default --mode 1920x1080 2>/dev/null');
+        console.log("Xvfb resolution initialization scaled to 1920x1080.");
+    } catch (err) {
+        // Fallback profile if default screen label name changes inside active container profile
+    }
+
     // 2. Start the desktop window layer manager inside display :1
     spawn('fluxbox', [], { env: { DISPLAY: ':1' } });
 
-    // 3. Start the VNC engine and hard-lock it to raw port 5900
+    // 3. Start the VNC engine and hard-lock it to raw port 5900 with performance overrides
     spawn('x11vnc', [
         '-display', ':1', 
         '-rfbport', '5900', // STRICT PORT RESOURCE LOCK
         '-nopw', 
         '-listen', 'localhost', 
         '-forever', 
-        '-shared'
+        '-shared',
+        '-defer', '10',     // CRITICAL PERFORMANCE FIX: Lowers frame encoding delay down to 10ms
+        '-noipv6',          // CRITICAL PERFORMANCE FIX: Disables structural IPv6 duplicate loop lookup delays
+        '-nowf'             // CRITICAL PERFORMANCE FIX: Disables window wireframing pooling overhead loops
     ]);
 
     // 4. Bind the streaming canvas web framework onto port 8081 mapping back to display 5900
@@ -74,13 +86,19 @@ xvfb.on('spawn', () => {
 // NEW UNIFIED REVERSE PROXY HOOKS (FIXES MIXED REQT / WHITE SCREEN EXCEPTION)
 // ====================================================================
 
-// Proxies raw WebSocket control streaming traffic cleanly back through port 8080
-app.use('/websockify', createProxyMiddleware({
+// Define the proxy configuration as a reusable instance compatible with http-proxy-middleware v4
+const wsProxy = createProxyMiddleware({
     target: 'http://localhost:8081',
     ws: true, 
     changeOrigin: true,
-    logLevel: 'silent'
-}));
+    logLevel: 'silent',
+    pathRewrite: {
+        '^/websockify': '', // Strips '/websockify' route path prefix so python process catches stream at root link
+    }
+});
+
+// Proxies raw WebSocket control streaming traffic cleanly back through port 8080
+app.use('/websockify', wsProxy);
 
 // Shares structural noVNC static framework assets without cross-origin file drops
 app.use('/vnc_core', express.static('/usr/share/novnc'));
@@ -95,7 +113,17 @@ app.get('/', (req, res) => {
     }
 });
 
-app.listen(port, '0.0.0.0', () => {
+// Wrap your Express application in a native Node HTTP server pipeline to handle network handshakes
+const server = http.createServer(app);
+
+// Explicitly pipe root level socket upgrade protocols straight into the proxy configuration rules
+server.on('upgrade', (req, socket, head) => {
+    if (req.url.startsWith('/websockify')) {
+        wsProxy.upgrade(req, socket, head);
+    }
+});
+
+server.listen(port, '0.0.0.0', () => {
     console.log(`\n======================================================`);
     console.log(`VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
     console.log(`Access your unified instance on Port: ${port}`);

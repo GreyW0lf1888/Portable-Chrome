@@ -4,7 +4,7 @@
   "main": "launcher.js",
   "scripts": {
     "start": "node launcher.js",
-    "install-chrome": "npx @puppeteer/browsers install chrome-headless-shell@stable"
+    "install-chrome": "npx @puppeteer/browsers install chrome@stable"
   },
   "dependencies": {
     "@puppeteer/browsers": "^2.2.0",
@@ -13,3 +13,4 @@
     "puppeteer-core": "^22.0.0"
   }
 }
+
