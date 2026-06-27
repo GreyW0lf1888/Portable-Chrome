@@ -4,7 +4,23 @@ RUN npm install express http-proxy-middleware
 
 RUN sudo apt-get install -y novnc python3-websockify
 
+FROM node:20-noble
 
+ENV DISPLAY=:1
+ENV NODE_ENV=production
+
+# Install full graphical browser utilities and X11 display frameworks cleanly
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    xvfb \
+    fluxbox \
+    x11vnc \
+    novnc \
+    python3-websockify \
+    python3 \
+    ca-certificates \
+    findutils \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \

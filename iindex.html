@@ -3,90 +3,210 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visual Web-Browser Workspace Controller</title>
-    
-    <!-- We inject noVNC directly into the main document using a secure module script, completely bypassing iframes -->
-    <script type="module">
-        import RFB from './vnc_core/core/rfb.js';
-        
-        let rfb;
-        const currentHost = window.location.host; // Dynamically gets your full port 8080 url
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        
-        // Maps the stream through your safe main URL path, making it look like a regular webpage to filters
-        const streamUrl = `${protocol}://${currentHost}/websockify`;
-
-        function initDisplay() {
-            const container = document.getElementById('browserDisplayContainer');
-            
-            // Render the browser screen canvas straight into the layout
-            rfb = new RFB(container, streamUrl);
-            rfb.scaleViewport = true;
-            rfb.background = 'rgb(15, 23, 42)';
-        }
-
-        window.onload = initDisplay;
-    </script>
+    <title>Cloud Browser Viewport</title>
     <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --accent: #38bdf8;
-            --text: #f8fafc;
-        }
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text);
+        * {
+            box-sizing: border-box;
             margin: 0;
-            padding: 1rem;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body, html {
+            height: 100%;
+            width: 100%;
+            background-color: #1e1e1e;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            height: 100vh;
-            box-sizing: border-box;
         }
-        .header {
-            width: 100%;
-            max-width: 1280px;
-            background: var(--card-bg);
-            padding: 1rem;
-            border-radius: 8px 8px 0 0;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+
+        /* Top Header Control Rack Layout */
+        .browser-header {
+            background-color: #2d2d2d;
+            padding: 10px 16px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            box-sizing: border-box;
+            gap: 16px;
+            border-bottom: 2px solid #1a1a1a;
+            color: #e0e0e0;
         }
-        h1 { color: var(--accent); margin: 0; font-size: 1.25rem; }
-        .browser-container {
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            background-color: #1a1a1a;
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid #444;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ff4d4d; /* Red default until connected */
+            border-radius: 50%;
+            box-shadow: 0 0 8px #ff4d4d;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background-color: #00e676;
+            box-shadow: 0 0 8px #00e676;
+        }
+
+        .notice-text {
+            font-size: 12px;
+            color: #aaa;
+            max-width: 500px;
+            line-height: 1.4;
+        }
+
+        /* Container that locks the canvas aspect ratio and centers it */
+        .viewport-wrapper {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #111;
+            padding: 10px;
+        }
+
+        /* Targets the core canvas container drawn by the noVNC library */
+        #vnc-canvas-target {
             width: 100%;
             max-width: 1280px;
-            flex-grow: 1;
-            background: #0b0f19;
-            border: 2px solid var(--card-bg);
-            border-top: none;
-            border-radius: 0 0 8px 8px;
+            height: auto;
+            max-height: 720px;
+            aspect-ratio: 16 / 9;
+            background-color: #000;
+            border-radius: 4px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            cursor: crosshair;
             overflow: hidden;
-            position: relative;
         }
-        #browserDisplayContainer {
-            width: 100%;
-            height: 100%;
+
+        /* Fortification: Forces the dynamically injected noVNC canvas to obey container boundaries */
+        #vnc-canvas-target canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
         }
     </style>
+
+    <script type="module">
+        let RFB;
+        
+        // Fortified dual-layer asset ingestion pipeline
+        async function loadRFBLibrary() {
+            try {
+                // Primary Option: Grab from local server path configuration
+                const module = await import('/vnc_core/core/rfb.js');
+                RFB = module.default;
+                console.log("noVNC core loaded successfully from local runtime environment repository.");
+            } catch (localError) {
+                console.warn("Local asset pathway broken or unmapped. Deploying fail-safe cloud proxy hook...");
+                try {
+                    // Fail-safe Secondary Option: Pull from certified global CDN fallback
+                    const module = await import('https://cdn.jsdelivr.net/npm/@novnc/novnc/core/rfb.js');
+                    RFB = module.default;
+                    console.log("noVNC core loaded successfully via global fail-safe CDN.");
+                } catch (cdnError) {
+                    console.error("Critical: Framework pipeline isolated. Network access blocked.");
+                }
+            }
+        }
+
+        let rfb;
+
+        async function connectVNC() {
+            // Load module files asynchronously before processing instantiation
+            if (!RFB) {
+                await loadRFBLibrary();
+            }
+
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+            const canvasTarget = document.getElementById('vnc-canvas-target');
+
+            if (!canvasTarget || !statusText || !statusDot) {
+                console.error("Critical Error: Core interface elements are missing from the DOM tree.");
+                return;
+            }
+
+            if (!RFB) {
+                statusText.textContent = "Library Load Failure";
+                return;
+            }
+
+            // Build absolute streaming network pipeline target
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const wsUrl = protocol + window.location.host + '/websockify';
+
+            statusText.textContent = "Connecting to pipeline...";
+
+            try {
+                // Instantiate connection with hard-coded option rules for canvas scaling
+                rfb = new RFB(canvasTarget, wsUrl, {
+                    credentials: { password: "" },
+                    shared: true
+                });
+
+                // Enforce active canvas sizing parameters to conform to browser wrapper frames
+                rfb.scaleViewport = true;
+                rfb.resizeSession = true; 
+                rfb.background = 'rgb(17, 17, 17)';
+
+                // Streaming Event Listeners
+                rfb.addEventListener("connect", () => {
+                    statusDot.classList.add('connected');
+                    statusText.textContent = "Isolated Browser Engine Active";
+                    console.log("Successfully connected to virtual frame socket mapping.");
+                });
+
+                rfb.addEventListener("disconnect", (e) => {
+                    statusDot.classList.remove('connected');
+                    statusText.textContent = "Stream Disconnected";
+                    console.log("VNC disconnected. Detail: ", e.detail.clean);
+                    
+                    // Attempt automatic reconnect cycle after 3-second recovery delay
+                    setTimeout(connectVNC, 3000);
+                });
+
+                rfb.focusOnClick = true;
+
+            } catch (err) {
+                statusText.textContent = "Connection Configuration Error";
+                console.error("Initialization Failed:", err);
+            }
+        }
+
+        // Execute load listener immediately regardless of engine loading states
+        if (document.readyState === "loading") {
+            window.addEventListener('DOMContentLoaded', connectVNC);
+        } else {
+            connectVNC();
+        }
+    </script>
 </head>
 <body>
 
-<div class="header">
-    <h1>Visual Browser Instance</h1>
-    <span style="color: #22c55e; font-weight: bold; font-size: 0.9rem;">● UNIFIED PROXY STREAM LIVE</span>
-</div>
+    <header class="browser-header">
+        <div class="status-pill">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Initializing Connection...</span>
+        </div>
+        <div class="notice-text">
+            <strong>System Node Connected:</strong> Direct hardware virtualization layer bypasses standard browser Cross-Origin (SOP) limitations.
+        </div>
+    </header>
 
-<div class="browser-container">
-    <!-- No iframe used here. The actual visual layout draws right onto this division -->
-    <div id="browserDisplayContainer"></div>
-</div>
+    <div class="viewport-wrapper">
+        <div id="vnc-canvas-target"></div>
+    </div>
 
 </body>
 </html>
