@@ -11,7 +11,13 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
-const port = 8080; // Web layout remains on the primary open cloud domain pipeline
+const BASE_PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+const WS_PROXY_PORT = 8081;
+const INTERNAL_VNC_PORT = 8082;
+const RESERVED_PORTS = [WS_PROXY_PORT, INTERNAL_VNC_PORT];
+let currentPort = BASE_PORT;
+const maxPortRetries = 20;
+let portAttempts = 0;
 
 // Middleware to parse raw string data packets sent from external trackers
 app.use(express.text({ type: '*/*' }));
@@ -67,23 +73,43 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 // ====================================================================
-// PRIORITY INITIALIZATION LAYER (FORCES PORT 8080 ROUTING FIRST)
+// PRIORITY INITIALIZATION LAYER (FORCES PORT SELECTION AND RETRY)
 // ====================================================================
 const HOST = '0.0.0.0'; 
 
-server.listen(port, HOST, () => {
-    console.log(`\n======================================================`);
-    console.log(`🚀 VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
-    console.log(`🌐 Bound Globally to network interface: ${HOST}`);
-    console.log(`📺 Primary Web Interface running on Port: ${port}`);
-    console.log(`======================================================\n`);
+function listenOnPort() {
+    if (RESERVED_PORTS.includes(currentPort)) {
+        currentPort += 1;
+    }
 
-    console.log(`Server running at http://${HOST}:${port}/`);
+    server.listen(currentPort, HOST, () => {
+        console.log(`\n======================================================`);
+        console.log(`🚀 VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
+        console.log(`🌐 Bound Globally to network interface: ${HOST}`);
+        console.log(`📺 Primary Web Interface running on Port: ${currentPort}`);
+        console.log(`======================================================\n`);
 
-    // Safely fire environment startup layer down below
-    setTimeout(startVisualEnvironment, 1000);
+        console.log(`Server running at http://${HOST}:${currentPort}/`);
+        setTimeout(startVisualEnvironment, 1000);
+    });
+}
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE' && portAttempts < maxPortRetries) {
+        console.warn(`Port ${currentPort} already in use, attempting next port...`);
+        portAttempts += 1;
+        currentPort += 1;
+        if (RESERVED_PORTS.includes(currentPort)) {
+            currentPort += 1;
+        }
+        listenOnPort();
+    } else {
+        console.error('Server failed to bind:', err);
+        process.exit(1);
+    }
 });
 
+listenOnPort();
 // ====================================================================
 // DEFERRED SYSTEM PROCESS INITIALIZATION
 // ====================================================================
@@ -116,13 +142,29 @@ function startVisualEnvironment() {
         ], { env: { ...process.env } });
         x11vnc.on('error', (err) => console.error("x11vnc failed to execute:", err.message));
 
-        // 4. Bind websockify to port 8081, feeding from the hidden 8082 VNC instance
+        // 4. Bind websockify / noVNC proxy to port 8081, feeding from the hidden 8082 VNC instance
         setTimeout(() => {
             const novncPath = '/usr/share/novnc';
-            const websockifyPath = '/usr/share/novnc/utils/websockify/websockify.py';
-            const websockify = spawn('python3', [websockifyPath, '--web', novncPath, '8081', '127.0.0.1:8082'], { env: { ...process.env } });
-            websockify.on('error', (err) => console.error("Websockify/Python failed to execute:", err.message));
-            console.log("Streaming socket baseline prepared (8081).");
+            const novncProxyPath = '/usr/share/novnc/utils/novnc_proxy';
+            const websockifyPyPath = '/usr/share/novnc/utils/websockify/websockify.py';
+
+            let proxyCmd;
+            let proxyArgs;
+
+            if (fs.existsSync(novncProxyPath)) {
+                proxyCmd = novncProxyPath;
+                proxyArgs = ['--listen', '8081', '--vnc', '127.0.0.1:8082', '--web', novncPath];
+            } else if (fs.existsSync(websockifyPyPath)) {
+                proxyCmd = 'python3';
+                proxyArgs = [websockifyPyPath, '--web', novncPath, '8081', '127.0.0.1:8082'];
+            } else {
+                console.error("Websockify proxy not found. Expected either:", novncProxyPath, "or", websockifyPyPath);
+                return;
+            }
+
+            const websockify = spawn(proxyCmd, proxyArgs, { env: { ...process.env } });
+            websockify.on('error', (err) => console.error("Websockify proxy failed to execute:", err.message));
+            console.log(`Streaming socket baseline prepared (8081) using ${proxyCmd}.`);
         }, 1500);
 
         // 5. Fire up the native Chromium window inside display :1
