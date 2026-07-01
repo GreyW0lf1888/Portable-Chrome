@@ -11,13 +11,12 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
-const BASE_PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
-const WS_PROXY_PORT = 8081;
-const INTERNAL_VNC_PORT = 8082;
-const RESERVED_PORTS = [WS_PROXY_PORT, INTERNAL_VNC_PORT];
-let currentPort = BASE_PORT;
-const maxPortRetries = 20;
-let portAttempts = 0;
+const port = 5000;
+
+const NOVNC_PATH = fs.existsSync(path.join(__dirname, 'novnc'))
+    ? path.join(__dirname, 'novnc')
+    : '/usr/share/novnc';
+const WEBSOCKIFY_BIN = path.join(process.env.HOME || '/home/runner', 'workspace', '.pythonlibs', 'bin', 'websockify');
 
 // Middleware to parse raw string data packets sent from external trackers
 app.use(express.text({ type: '*/*' }));
@@ -25,32 +24,34 @@ app.use(express.text({ type: '*/*' }));
 // --- CRITICAL LINUX SYSTEM LOCK SANITISER ---
 try {
     console.log("Purging legacy container processes and virtual display sockets...");
-    execSync('killall -9 Xvfb fluxbox x11vnc python3 chromium chromium-browser chrome 2>/dev/null');
-    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null');
+    execSync('killall -9 Xvfb fluxbox x11vnc python3 chromium chromium-browser chrome 2>/dev/null || true');
+    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true');
     console.log("Environment cleanup complete.");
 } catch (e) {}
 
 // ====================================================================
-// NEW UNIFIED REVERSE PROXY HOOKS (HTTP-PROXY-MIDDLEWARE V4)
+// REVERSE PROXY FOR WEBSOCKIFY (HTTP-PROXY-MIDDLEWARE V4)
 // ====================================================================
 const wsProxy = createProxyMiddleware({
     target: 'http://127.0.0.1:8081', 
     ws: true, 
     changeOrigin: true,
-    logLevel: 'silent'
+    logLevel: 'silent',
+    pathRewrite: {
+        '^/websockify': '/',
+    },
 });
 
 app.use('/websockify', wsProxy);
-app.use('/vnc_core', express.static('/usr/share/novnc'));
+app.use('/vnc_core', express.static(NOVNC_PATH));
 
 // ====================================================================
-// INTEGRATED TRACKING LOGIC ROUTE (REPLACES DETACHED PORT 5900 CONFLICT)
+// TRACKER ROUTE
 // ====================================================================
 app.all('/tracker', (req, res) => {
     console.log(`[TRACKER LAYER]: Input/metrics package received.`);
     if (req.body) {
         console.log(`Payload content: ${req.body}`);
-        // Handle input coordination, tracing, or custom messaging packets here cleanly
     }
     res.status(200).send({ status: "processed", activeDisplay: ":1" });
 });
@@ -73,122 +74,118 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 // ====================================================================
-// PRIORITY INITIALIZATION LAYER (FORCES PORT SELECTION AND RETRY)
+// START SERVER
 // ====================================================================
 const HOST = '0.0.0.0'; 
 
-function listenOnPort() {
-    if (RESERVED_PORTS.includes(currentPort)) {
-        currentPort += 1;
-    }
+server.listen(port, HOST, () => {
+    console.log(`\n======================================================`);
+    console.log(`VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
+    console.log(`Bound Globally to network interface: ${HOST}`);
+    console.log(`Primary Web Interface running on Port: ${port}`);
+    console.log(`noVNC path: ${NOVNC_PATH}`);
+    console.log(`======================================================\n`);
 
-    server.listen(currentPort, HOST, () => {
-        console.log(`\n======================================================`);
-        console.log(`🚀 VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
-        console.log(`🌐 Bound Globally to network interface: ${HOST}`);
-        console.log(`📺 Primary Web Interface running on Port: ${currentPort}`);
-        console.log(`======================================================\n`);
-
-        console.log(`Server running at http://${HOST}:${currentPort}/`);
-        setTimeout(startVisualEnvironment, 1000);
-    });
-}
-
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE' && portAttempts < maxPortRetries) {
-        console.warn(`Port ${currentPort} already in use, attempting next port...`);
-        portAttempts += 1;
-        currentPort += 1;
-        if (RESERVED_PORTS.includes(currentPort)) {
-            currentPort += 1;
-        }
-        listenOnPort();
-    } else {
-        console.error('Server failed to bind:', err);
-        process.exit(1);
-    }
+    setTimeout(startVisualEnvironment, 1000);
 });
 
-listenOnPort();
 // ====================================================================
 // DEFERRED SYSTEM PROCESS INITIALIZATION
 // ====================================================================
-function startVisualEnvironment() {
-    console.log("Initializing visual environment layers...");
+function waitForX11Socket(socketPath, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+        const start = Date.now();
 
-    // 1. Setup the virtual display frame natively locked directly to full 1080p resolution buffer
-    const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1920x1080x24']);
-
-    xvfb.on('error', (err) => console.error("Xvfb failed to execute:", err.message));
-
-    xvfb.on('spawn', () => {
-        console.log("Virtual monitor frame allocated successfully (:1).");
-        
-        // 2. Start the desktop window layer manager inside display :1
-        const fluxbox = spawn('fluxbox', [], { env: { ...process.env, DISPLAY: ':1' } });
-        fluxbox.on('error', (err) => console.error("Fluxbox failed to execute:", err.message));
-
-        // 3. Start the VNC engine on hidden internal port 8082 instead of 5900
-        const x11vnc = spawn('x11vnc', [
-            '-display', ':1', 
-            '-rfbport', '8082', 
-            '-nopw', 
-            '-listen', '127.0.0.1', 
-            '-forever', 
-            '-shared',
-            '-defer', '10',     
-            '-noipv6',          
-            '-nowf'             
-        ], { env: { ...process.env } });
-        x11vnc.on('error', (err) => console.error("x11vnc failed to execute:", err.message));
-
-        // 4. Bind websockify / noVNC proxy to port 8081, feeding from the hidden 8082 VNC instance
-        setTimeout(() => {
-            const novncPath = '/usr/share/novnc';
-            const novncProxyPath = '/usr/share/novnc/utils/novnc_proxy';
-            const websockifyPyPath = '/usr/share/novnc/utils/websockify/websockify.py';
-
-            let proxyCmd;
-            let proxyArgs;
-
-            if (fs.existsSync(novncProxyPath)) {
-                proxyCmd = novncProxyPath;
-                proxyArgs = ['--listen', '8081', '--vnc', '127.0.0.1:8082', '--web', novncPath];
-            } else if (fs.existsSync(websockifyPyPath)) {
-                proxyCmd = 'python3';
-                proxyArgs = [websockifyPyPath, '--web', novncPath, '8081', '127.0.0.1:8082'];
-            } else {
-                console.error("Websockify proxy not found. Expected either:", novncProxyPath, "or", websockifyPyPath);
+        const interval = setInterval(() => {
+            if (fs.existsSync(socketPath)) {
+                clearInterval(interval);
+                resolve(true);
                 return;
             }
 
-            const websockify = spawn(proxyCmd, proxyArgs, { env: { ...process.env } });
-            websockify.on('error', (err) => console.error("Websockify proxy failed to execute:", err.message));
-            console.log(`Streaming socket baseline prepared (8081) using ${proxyCmd}.`);
-        }, 1500);
-
-        // 5. Fire up the native Chromium window inside display :1
-        setTimeout(() => {
-            let binaryCmd = 'chromium';
-            if (fs.existsSync('/usr/bin/chromium-browser')) {
-                binaryCmd = 'chromium-browser';
+            if (Date.now() - start > timeoutMs) {
+                clearInterval(interval);
+                reject(new Error('Xvfb socket did not appear in time'));
             }
+        }, 100);
+    });
+}
 
-            console.log(`Launching visual Chromium engine window via target: ${binaryCmd}`);
+function startVisualEnvironment() {
+    console.log("Initializing high-performance visual environment layers...");
+
+    const env1 = { ...process.env, DISPLAY: ':1' };
+
+    // 1. Start Xvfb (16bpp for network performance, -ac/-pn/-noreset for stability)
+    const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x16', '-ac', '-pn', '-noreset']);
+    xvfb.on('error', (err) => console.error("Xvfb failed:", err.message));
+    console.log("Starting Xvfb virtual display...");
+
+    const socketPath = '/tmp/.X11-unix/X1';
+
+    waitForX11Socket(socketPath, 8000)
+        .then(() => {
+            console.log('Xvfb socket ready:', socketPath);
+
+            // 2. Start fluxbox window manager
+            console.log('Starting fluxbox window manager...');
+            const cleanEnv = { ...env1 };
+            delete cleanEnv.SESSION_MANAGER;
+            delete cleanEnv.DBUS_SESSION_BUS_ADDRESS;
+            const fluxbox = spawn('fluxbox', [], { env: cleanEnv });
+            fluxbox.on('error', (err) => console.error('Fluxbox failed:', err.message));
+
+            // 3. Start hyper-optimized x11vnc
+            console.log('Starting hyper-optimized x11vnc on port 8082...');
+            const x11vnc = spawn('x11vnc', [
+                '-display', ':1',
+                '-rfbport', '8082',
+                '-nopw',
+                '-listen', '127.0.0.1',
+                '-forever',
+                '-shared',
+                '-noipv6',
+                '-nowf',
+                '-noshm',
+                '-defer', '0',
+            ], { env: env1 });
+            x11vnc.on('error', (err) => console.error('x11vnc failed:', err.message));
+            x11vnc.stderr.on('data', (d) => {
+                const msg = d.toString().trim();
+                if (msg) console.log('[x11vnc]', msg);
+            });
+
+            // 4. Start websockify
+            const websockifyCmd = fs.existsSync(WEBSOCKIFY_BIN) ? WEBSOCKIFY_BIN : 'websockify';
+            console.log('Starting websockify...');
+            const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, '8081', '127.0.0.1:8082'], { env: { ...process.env } });
+            websockify.on('error', (err) => console.error('Websockify failed:', err.message));
+            websockify.stdout.on('data', (d) => console.log('[websockify]', d.toString().trim()));
+            websockify.stderr.on('data', (d) => console.error('[websockify]', d.toString().trim()));
+
+            // 5. Launch Chromium with GPU rasterization enabled
+            let binaryCmd = 'chromium';
+            if (fs.existsSync('/usr/bin/chromium-browser')) binaryCmd = 'chromium-browser';
+            console.log('Launching Chromium with hardware acceleration enabled...');
             const chromium = spawn(binaryCmd, [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-gpu',
+                '--test-type',
+                '--no-first-run',
                 '--start-maximized',
-                '--js-flags="--max-old-space-size=400"', 
-                '--no-zygote',
-                '--single-process',
                 '--disable-dev-shm-usage',
-                '--disable-software-rasterizer',
+                '--disable-infobars',
+                '--disable-smooth-scrolling',
+                '--ignore-gpu-blocklist',
+                '--enable-gpu-rasterization',
+                '--enable-zero-copy',
                 'https://google.com'
-            ], { env: { ...process.env, DISPLAY: ':1' } });
-            
-            chromium.on('error', (err) => console.error("Chromium browser failed to execute:", err.message));
-        }, 2500);
-    });
+            ], { env: env1 });
+            chromium.on('error', (err) => console.error('Chromium failed:', err.message));
+            chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
+            chromium.stdout.on('data', (d) => console.log('[Chromium]', d.toString().trim()));
+        })
+        .catch((err) => {
+            console.error('Xvfb readiness check failed:', err.message);
+        });
 }

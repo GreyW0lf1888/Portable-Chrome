@@ -33,8 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
-
-# Install the updated modern Linux GUI/system libraries required for Ubuntu 24.04+ Noble
+     for Ubuntu 24.04+ Noble
+     
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
@@ -50,37 +50,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxfixes3 \
     libxrandr2 \
     libgbm1 \
-    libasound2t64 \
-    libpangocairo-1.0-0 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxrender1 \
-    libxtst6 \
-    fonts-liberation \
-    findutils \
+    libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create application directory
 WORKDIR /app
 
-# 1. Copy over ALL your application source files first (including iindex.html)
-COPY . .
-
+COPY package*.json ./
 RUN npm install --only=production
 
-# 2. Install production dependencies cleanly
-RUN npm ci --only=production || npm install --only=production
+COPY . .
 
-# 3. Run the chrome installer script AFTER files are in place so it never gets overwritten
-RUN npm run install-chrome
+EXPOSE 5000 8081
 
-# Render exposes application ports using the PORT environment variable
-EXPOSE 8080
-EXPOSE 8081
-
-# Command to start your application launcher script
 CMD ["npm", "start"]
