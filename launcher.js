@@ -19,7 +19,6 @@ const maxListenAttempts = 10;
 const websockifyPort = Number(process.env.WEBSOCKIFY_PORT || 8081);
 const vncPort = Number(process.env.VNC_PORT || 8082);
 let activeVncPort = vncPort;
-let activeWebsockifyPort = websockifyPort;
 
 const NOVNC_PATH = fs.existsSync(path.join(__dirname, 'novnc'))
     ? path.join(__dirname, 'novnc')
@@ -43,7 +42,7 @@ try {
 // REVERSE PROXY FOR WEBSOCKIFY (HTTP-PROXY-MIDDLEWARE V4)
 // ====================================================================
 const wsProxy = createProxyMiddleware({
-    target: 'http://127.0.0.1:8081', 
+    target: `http://127.0.0.1:${websockifyPort}`, 
     ws: true, 
     changeOrigin: true,
     logLevel: 'silent',
@@ -146,16 +145,30 @@ function waitForX11Socket(socketPath, timeoutMs = 5000) {
     });
 }
 
-function findFreePort(startPort) {
+function findFreePort(startPort, excluded = []) {
     return new Promise((resolve) => {
         const net = require('net');
-        const tester = net.createServer();
-        tester.once('error', () => resolve(findFreePort(startPort + 1)));
-        tester.once('listening', () => {
-            const { port } = tester.address();
-            tester.close(() => resolve(port));
-        });
-        tester.listen(startPort, '127.0.0.1');
+        const tryPort = (candidate) => {
+            if (excluded.includes(candidate)) {
+                return tryPort(candidate + 1);
+            }
+
+            const tester = net.createServer();
+            tester.once('error', () => {
+                if (candidate < 65535) {
+                    tryPort(candidate + 1);
+                } else {
+                    resolve(startPort);
+                }
+            });
+            tester.once('listening', () => {
+                const { port } = tester.address();
+                tester.close(() => resolve(port));
+            });
+            tester.listen(candidate, '127.0.0.1');
+        };
+
+        tryPort(startPort);
     });
 }
 
@@ -175,14 +188,8 @@ async function startVisualEnvironment() {
         await waitForX11Socket(socketPath, 8000);
         console.log('Xvfb socket ready:', socketPath);
 
-        const ports = await Promise.all([
-            findFreePort(activeVncPort),
-            findFreePort(activeWebsockifyPort),
-        ]);
-        activeVncPort = ports[0];
-        activeWebsockifyPort = ports[1];
-
-        console.log(`Using VNC port ${activeVncPort} and websockify port ${activeWebsockifyPort}`);
+        activeVncPort = await findFreePort(activeVncPort);
+        console.log(`Using VNC port ${activeVncPort} and websockify port ${websockifyPort}`);
 
         // 2. Start fluxbox window manager
         console.log('Starting fluxbox window manager...');
@@ -214,8 +221,8 @@ async function startVisualEnvironment() {
 
         // 4. Start websockify
         const websockifyCmd = fs.existsSync(WEBSOCKIFY_BIN) ? WEBSOCKIFY_BIN : 'websockify';
-        console.log(`Starting websockify on port ${activeWebsockifyPort}...`);
-        const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, String(activeWebsockifyPort), `127.0.0.1:${activeVncPort}`], { env: { ...process.env } });
+        console.log(`Starting websockify on port ${websockifyPort}...`);
+        const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, String(websockifyPort), `127.0.0.1:${activeVncPort}`], { env: { ...process.env } });
         websockify.on('error', (err) => console.error('Websockify failed:', err.message));
         websockify.stdout.on('data', (d) => console.log('[websockify]', d.toString().trim()));
         websockify.stderr.on('data', (d) => console.error('[websockify]', d.toString().trim()));
@@ -249,17 +256,25 @@ async function startVisualEnvironment() {
         const chromium = spawn(binaryCmd, [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--test-type',
-            '--no-first-run',
-            '--start-maximized',
             '--disable-dev-shm-usage',
-            '--disable-infobars',
-            '--disable-smooth-scrolling',
-            '--ignore-gpu-blocklist',
-            '--enable-gpu-rasterization',
-            '--enable-zero-copy',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-features=VizDisplayCompositor,UseOzonePlatform,Translate,BackForwardCache',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--window-size=1280,720',
+            '--start-maximized',
+            '--new-window',
+            '--user-data-dir=/tmp/chrome-port-launcher-profile-' + process.pid,
+            '--remote-debugging-port=9222',
+            '--disable-logging',
+            '--log-level=0',
             'https://google.com'
-        ], { env: env1 });
+        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome' } });
         chromium.on('error', (err) => console.error('Chromium failed:', err.message));
         chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
         chromium.stdout.on('data', (d) => console.log('[Chromium]', d.toString().trim()));
