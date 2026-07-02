@@ -256,7 +256,7 @@ async function startVisualEnvironment() {
         const chromium = spawn(binaryCmd, [
             '--single-process',      
             '--no-zygote',             
-            '--renderer-process-limit=1'
+            '--renderer-process-limit=1',
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
