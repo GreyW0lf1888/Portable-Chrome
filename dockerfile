@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN (apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget gnupg xvfb fluxbox x11vnc novnc python3 python3-websockify dbus-x11 procps >/dev/null 2>&1 || true) && pkill -f 'node launcher.js|chrome-linux64/chrome|x11vnc|websockify' >/dev/null 2>&1 || true && (sleep 8 && echo '--- processes ---' && ps -ef | grep -E '[c]hrome-linux64/chrome|[x]11vnc|[w]ebsockify|[n]ode launcher.js' || true && echo '--- ports ---' && ss -ltnp 2>/dev/null | grep -E ':5000|:8081|:8082|:8086' || true && echo '--- http check ---' && curl -I -s http://127.0.0 | head -n 5) & node launcher.js
+
 WORKDIR /app
 
 COPY package*.json ./
