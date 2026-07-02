@@ -1,4 +1,4 @@
-FROM node:20-noble
+FROM node:20-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:1
