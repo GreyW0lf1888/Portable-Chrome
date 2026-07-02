@@ -53,3 +53,4 @@ EXPOSE 5000 8081 8082 5900
 
 
 CMD ["npm", "start"]
+CMD ["node", "launcher.js"]
