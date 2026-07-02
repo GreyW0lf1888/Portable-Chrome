@@ -206,6 +206,7 @@ async function startVisualEnvironment() {
             '-rfbport', String(activeVncPort),
             '-nopw',
             '-listen', '127.0.0.1',
+            '-nwwebset',
             '-forever',
             '-shared',
             '-noipv6',
