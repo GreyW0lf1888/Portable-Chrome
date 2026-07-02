@@ -11,7 +11,15 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
-const port = 5000;
+const requestedPort = Number(process.env.PORT || 5000);
+let currentPort = requestedPort;
+let server = null;
+let listenAttempts = 0;
+const maxListenAttempts = 10;
+const websockifyPort = Number(process.env.WEBSOCKIFY_PORT || 8081);
+const vncPort = Number(process.env.VNC_PORT || 8082);
+let activeVncPort = vncPort;
+let activeWebsockifyPort = websockifyPort;
 
 const NOVNC_PATH = fs.existsSync(path.join(__dirname, 'novnc'))
     ? path.join(__dirname, 'novnc')
@@ -24,8 +32,10 @@ app.use(express.text({ type: '*/*' }));
 // --- CRITICAL LINUX SYSTEM LOCK SANITISER ---
 try {
     console.log("Purging legacy container processes and virtual display sockets...");
-    execSync('killall -9 Xvfb fluxbox x11vnc python3 chromium chromium-browser chrome 2>/dev/null || true');
-    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true');
+    execSync(`ps -eo pid=,args= | awk '/node launcher.js/ && $1 != ${process.pid} {print $1}' | xargs -r kill -9`, { stdio: 'ignore' });
+    execSync('killall -9 Xvfb fluxbox x11vnc websockify python3 chromium chromium-browser chrome 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('fuser -k 5000/tcp 8081/tcp 8082/tcp 5900/tcp 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 /tmp/.X11-unix/X0 2>/dev/null || true', { stdio: 'ignore' });
     console.log("Environment cleanup complete.");
 } catch (e) {}
 
@@ -65,29 +75,54 @@ app.get('/', (req, res) => {
     }
 });
 
-const server = http.createServer(app);
+function createServer() {
+    const srv = http.createServer(app);
 
-server.on('upgrade', (req, socket, head) => {
-    if (req.url.startsWith('/websockify')) {
-        wsProxy.upgrade(req, socket, head);
-    }
-});
+    srv.on('upgrade', (req, socket, head) => {
+        if (req.url.startsWith('/websockify')) {
+            wsProxy.upgrade(req, socket, head);
+        }
+    });
+
+    srv.on('error', (err) => {
+        if (err.code === 'EADDRINUSE' && listenAttempts < maxListenAttempts) {
+            listenAttempts += 1;
+            currentPort += 1;
+            console.warn(`Port ${currentPort - 1} is busy; trying ${currentPort} instead.`);
+            listenOnPort();
+        } else {
+            console.error('Server failed to bind:', err.message || err);
+            process.exit(1);
+        }
+    });
+
+    return srv;
+}
 
 // ====================================================================
 // START SERVER
 // ====================================================================
-const HOST = '0.0.0.0'; 
+const HOST = '0.0.0.0';
 
-server.listen(port, HOST, () => {
-    console.log(`\n======================================================`);
-    console.log(`VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
-    console.log(`Bound Globally to network interface: ${HOST}`);
-    console.log(`Primary Web Interface running on Port: ${port}`);
-    console.log(`noVNC path: ${NOVNC_PATH}`);
-    console.log(`======================================================\n`);
+function listenOnPort() {
+    if (server) {
+        try { server.close(); } catch (e) {}
+    }
 
-    setTimeout(startVisualEnvironment, 1000);
-});
+    server = createServer();
+    server.listen(currentPort, HOST, () => {
+        console.log(`\n======================================================`);
+        console.log(`VISUAL BROWSER ROUTER IS LIVE ONLINE!`);
+        console.log(`Bound Globally to network interface: ${HOST}`);
+        console.log(`Primary Web Interface running on Port: ${currentPort}`);
+        console.log(`noVNC path: ${NOVNC_PATH}`);
+        console.log(`======================================================\n`);
+
+        setTimeout(startVisualEnvironment, 1000);
+    });
+}
+
+listenOnPort();
 
 // ====================================================================
 // DEFERRED SYSTEM PROCESS INITIALIZATION
@@ -111,7 +146,20 @@ function waitForX11Socket(socketPath, timeoutMs = 5000) {
     });
 }
 
-function startVisualEnvironment() {
+function findFreePort(startPort) {
+    return new Promise((resolve) => {
+        const net = require('net');
+        const tester = net.createServer();
+        tester.once('error', () => resolve(findFreePort(startPort + 1)));
+        tester.once('listening', () => {
+            const { port } = tester.address();
+            tester.close(() => resolve(port));
+        });
+        tester.listen(startPort, '127.0.0.1');
+    });
+}
+
+async function startVisualEnvironment() {
     console.log("Initializing high-performance visual environment layers...");
 
     const env1 = { ...process.env, DISPLAY: ':1' };
@@ -123,69 +171,99 @@ function startVisualEnvironment() {
 
     const socketPath = '/tmp/.X11-unix/X1';
 
-    waitForX11Socket(socketPath, 8000)
-        .then(() => {
-            console.log('Xvfb socket ready:', socketPath);
+    try {
+        await waitForX11Socket(socketPath, 8000);
+        console.log('Xvfb socket ready:', socketPath);
 
-            // 2. Start fluxbox window manager
-            console.log('Starting fluxbox window manager...');
-            const cleanEnv = { ...env1 };
-            delete cleanEnv.SESSION_MANAGER;
-            delete cleanEnv.DBUS_SESSION_BUS_ADDRESS;
-            const fluxbox = spawn('fluxbox', [], { env: cleanEnv });
-            fluxbox.on('error', (err) => console.error('Fluxbox failed:', err.message));
+        const ports = await Promise.all([
+            findFreePort(activeVncPort),
+            findFreePort(activeWebsockifyPort),
+        ]);
+        activeVncPort = ports[0];
+        activeWebsockifyPort = ports[1];
 
-            // 3. Start hyper-optimized x11vnc
-            console.log('Starting hyper-optimized x11vnc on port 8082...');
-            const x11vnc = spawn('x11vnc', [
-                '-display', ':1',
-                '-rfbport', '8082',
-                '-nopw',
-                '-listen', '127.0.0.1',
-                '-forever',
-                '-shared',
-                '-noipv6',
-                '-nowf',
-                '-noshm',
-                '-defer', '0',
-            ], { env: env1 });
-            x11vnc.on('error', (err) => console.error('x11vnc failed:', err.message));
-            x11vnc.stderr.on('data', (d) => {
-                const msg = d.toString().trim();
-                if (msg) console.log('[x11vnc]', msg);
-            });
+        console.log(`Using VNC port ${activeVncPort} and websockify port ${activeWebsockifyPort}`);
 
-            // 4. Start websockify
-            const websockifyCmd = fs.existsSync(WEBSOCKIFY_BIN) ? WEBSOCKIFY_BIN : 'websockify';
-            console.log('Starting websockify...');
-            const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, '8081', '127.0.0.1:8082'], { env: { ...process.env } });
-            websockify.on('error', (err) => console.error('Websockify failed:', err.message));
-            websockify.stdout.on('data', (d) => console.log('[websockify]', d.toString().trim()));
-            websockify.stderr.on('data', (d) => console.error('[websockify]', d.toString().trim()));
+        // 2. Start fluxbox window manager
+        console.log('Starting fluxbox window manager...');
+        const cleanEnv = { ...env1 };
+        delete cleanEnv.SESSION_MANAGER;
+        delete cleanEnv.DBUS_SESSION_BUS_ADDRESS;
+        const fluxbox = spawn('fluxbox', [], { env: cleanEnv });
+        fluxbox.on('error', (err) => console.error('Fluxbox failed:', err.message));
 
-            // 5. Launch Chromium with GPU rasterization enabled
-            let binaryCmd = 'chromium';
-            if (fs.existsSync('/usr/bin/chromium-browser')) binaryCmd = 'chromium-browser';
-            console.log('Launching Chromium with hardware acceleration enabled...');
-            const chromium = spawn(binaryCmd, [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--test-type',
-                '--no-first-run',
-                '--start-maximized',
-                '--disable-dev-shm-usage',
-                '--disable-infobars',
-                '--disable-smooth-scrolling',
-                '--ignore-gpu-blocklist',
-                '--enable-gpu-rasterization',
-                '--enable-zero-copy',
-                'https://google.com'
-            ], { env: env1 });
-            chromium.on('error', (err) => console.error('Chromium failed:', err.message));
-            chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
-            chromium.stdout.on('data', (d) => console.log('[Chromium]', d.toString().trim()));
-        })
-        .catch((err) => {
-            console.error('Xvfb readiness check failed:', err.message);
+        // 3. Start hyper-optimized x11vnc
+        console.log(`Starting hyper-optimized x11vnc on port ${activeVncPort}...`);
+        const x11vnc = spawn('x11vnc', [
+            '-display', ':1',
+            '-rfbport', String(activeVncPort),
+            '-nopw',
+            '-listen', '127.0.0.1',
+            '-forever',
+            '-shared',
+            '-noipv6',
+            '-nowf',
+            '-noshm',
+            '-defer', '0',
+        ], { env: env1 });
+        x11vnc.on('error', (err) => console.error('x11vnc failed:', err.message));
+        x11vnc.stderr.on('data', (d) => {
+            const msg = d.toString().trim();
+            if (msg) console.log('[x11vnc]', msg);
         });
+
+        // 4. Start websockify
+        const websockifyCmd = fs.existsSync(WEBSOCKIFY_BIN) ? WEBSOCKIFY_BIN : 'websockify';
+        console.log(`Starting websockify on port ${activeWebsockifyPort}...`);
+        const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, String(activeWebsockifyPort), `127.0.0.1:${activeVncPort}`], { env: { ...process.env } });
+        websockify.on('error', (err) => console.error('Websockify failed:', err.message));
+        websockify.stdout.on('data', (d) => console.log('[websockify]', d.toString().trim()));
+        websockify.stderr.on('data', (d) => console.error('[websockify]', d.toString().trim()));
+
+        // 5. Launch Chromium with GPU rasterization enabled
+        const browserCandidates = [
+            path.join(__dirname, 'chrome', 'linux-150.0.7871.46', 'chrome-linux64', 'chrome'),
+            path.join(__dirname, 'chrome-headless-shell', 'linux-149.0.7827.54', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium',
+        ];
+
+        let binaryCmd = null;
+        for (const candidate of browserCandidates) {
+            if (!candidate || !fs.existsSync(candidate)) continue;
+            if (candidate.includes('chromium-browser')) {
+                const content = fs.readFileSync(candidate, 'utf8').slice(0, 80);
+                if (content.startsWith('#!')) continue;
+            }
+            binaryCmd = candidate;
+            break;
+        }
+
+        if (!binaryCmd) {
+            console.error('No usable browser binary was found for launch.');
+            return;
+        }
+
+        console.log(`Launching browser with binary: ${binaryCmd}`);
+        const chromium = spawn(binaryCmd, [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--test-type',
+            '--no-first-run',
+            '--start-maximized',
+            '--disable-dev-shm-usage',
+            '--disable-infobars',
+            '--disable-smooth-scrolling',
+            '--ignore-gpu-blocklist',
+            '--enable-gpu-rasterization',
+            '--enable-zero-copy',
+            'https://google.com'
+        ], { env: env1 });
+        chromium.on('error', (err) => console.error('Chromium failed:', err.message));
+        chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
+        chromium.stdout.on('data', (d) => console.log('[Chromium]', d.toString().trim()));
+    } catch (err) {
+        console.error('Xvfb readiness check failed:', err.message);
+    }
 }

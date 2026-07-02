@@ -1,56 +1,40 @@
 FROM node:20-noble
 
-RUN npm install express http-proxy-middleware
-
-RUN sudo apt-get install -y novnc python3-websockify
-
-FROM node:20-noble
-
+ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:1
 ENV NODE_ENV=production
 
-# Install full graphical browser utilities and X11 display frameworks cleanly
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    xvfb \
-    fluxbox \
-    x11vnc \
-    novnc \
-    python3-websockify \
-    python3 \
     ca-certificates \
-    findutils \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    xvfb \
-    fluxbox \
-    x11vnc \
-    novnc \
-    python3-websockify \
-    python3 \
-    ca-certificates \
-    fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
-     for Ubuntu 24.04+ Noble
-     
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     wget \
     gnupg \
-    ca-certificates \
-    libatk1.0-0t64 \
-    libatk-bridge2.0-0t64 \
-    libcups2t64 \
+    xvfb \
+    fluxbox \
+    x11vnc \
+    novnc \
+    python3 \
+    python3-websockify \
+    dbus-x11 \
+    procps \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
     libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
     libgbm1 \
     libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libxshmfence1 \
+    libxss1 \
+    libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -60,6 +44,8 @@ RUN npm install --only=production
 
 COPY . .
 
-EXPOSE 5000 8081
+RUN npm run install-chrome
+
+EXPOSE 5000 8081 8082 5900
 
 CMD ["npm", "start"]
