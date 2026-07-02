@@ -254,6 +254,9 @@ async function startVisualEnvironment() {
 
         console.log(`Launching browser with binary: ${binaryCmd}`);
         const chromium = spawn(binaryCmd, [
+            '--single-process',      
+            '--no-zygote',             
+            '--renderer-process-limit=1'
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
