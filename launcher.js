@@ -25,6 +25,74 @@ const NOVNC_PATH = fs.existsSync(path.join(__dirname, 'novnc'))
     : '/usr/share/novnc';
 const WEBSOCKIFY_BIN = path.join(process.env.HOME || '/home/runner', 'workspace', '.pythonlibs', 'bin', 'websockify');
 
+function resolveBinary(...candidates) {
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        if (path.isAbsolute(candidate)) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+            continue;
+        }
+
+        try {
+            const resolved = execSync(`command -v ${candidate}`, { stdio: ['ignore', 'pipe', 'ignore'] })
+                .toString()
+                .trim();
+            if (resolved) {
+                return resolved;
+            }
+        } catch (error) {
+            continue;
+        }
+    }
+    return null;
+}
+
+const XvfbBinary = resolveBinary('/usr/bin/Xvfb', 'Xvfb');
+const FluxboxBinary = resolveBinary('/usr/bin/fluxbox', 'fluxbox');
+const X11VNCCmd = resolveBinary('/usr/bin/x11vnc', 'x11vnc');
+const WebsockifyCmd = fs.existsSync(WEBSOCKIFY_BIN)
+    ? WEBSOCKIFY_BIN
+    : resolveBinary('/usr/bin/websockify', 'websockify');
+
+if (!XvfbBinary || !FluxboxBinary || !X11VNCCmd || !WebsockifyCmd) {
+    console.error('Critical: One or more required visual environment binaries are unavailable.');
+    console.error('Resolved binaries:');
+    console.error('  Xvfb:', XvfbBinary || 'not found');
+    console.error('  fluxbox:', FluxboxBinary || 'not found');
+    console.error('  x11vnc:', X11VNCCmd || 'not found');
+    console.error('  websockify:', WebsockifyCmd || 'not found');
+    process.exit(1);
+}
+
+function findBrowserCandidates() {
+    const candidates = [
+        path.join(__dirname, 'chrome-headless-shell', 'linux-149.0.7827.54', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+    ];
+
+    const chromeRoot = path.join(__dirname, 'chrome');
+    if (fs.existsSync(chromeRoot)) {
+        const builds = fs.readdirSync(chromeRoot, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .sort()
+            .reverse();
+
+        for (const build of builds) {
+            const candidate = path.join(chromeRoot, build, 'chrome-linux64', 'chrome');
+            if (fs.existsSync(candidate)) {
+                candidates.unshift(candidate);
+            }
+        }
+    }
+
+    return candidates;
+}
+
 // Middleware to parse raw string data packets sent from external trackers
 app.use(express.text({ type: '*/*' }));
 
@@ -45,6 +113,8 @@ const wsProxy = createProxyMiddleware({
     target: `http://127.0.0.1:${websockifyPort}`, 
     ws: true, 
     changeOrigin: true,
+    secure: false,
+    xfwd: true,
     logLevel: 'silent',
     pathRewrite: {
         '^/websockify': '/',
@@ -178,8 +248,7 @@ async function startVisualEnvironment() {
     const env1 = { ...process.env, DISPLAY: ':1' };
 
     // 1. Start Xvfb (16bpp for network performance, -ac/-pn/-noreset for stability)
-    const xvfb = spawn('Xvfb', [':1', '-screen', '0', '1280x720x16', '-ac', '-pn', '-noreset']);
-    xvfb.on('error', (err) => console.error("Xvfb failed:", err.message));
+        const xvfb = spawn(XvfbBinary || 'Xvfb', [':1', '-screen', '0', '1280x720x16', '-ac', '-pn', '-noreset']);
     console.log("Starting Xvfb virtual display...");
 
     const socketPath = '/tmp/.X11-unix/X1';
@@ -196,18 +265,17 @@ async function startVisualEnvironment() {
         const cleanEnv = { ...env1 };
         delete cleanEnv.SESSION_MANAGER;
         delete cleanEnv.DBUS_SESSION_BUS_ADDRESS;
-        const fluxbox = spawn('fluxbox', [], { env: cleanEnv });
+        const fluxbox = spawn(FluxboxBinary || 'fluxbox', [], { env: cleanEnv });
         fluxbox.on('error', (err) => console.error('Fluxbox failed:', err.message));
 
         // 3. Start hyper-optimized x11vnc
         console.log(`Starting hyper-optimized x11vnc on port ${activeVncPort}...`);
-        const x11vnc = spawn('x11vnc', [
+        const x11vnc = spawn(X11VNCCmd || 'x11vnc', [
             '-display', ':1',
             '-rfbport', String(activeVncPort),
             '-nopw',
             '-listen', '127.0.0.1',
             '-localhost',
-            '-nowebset',
             '-forever',
             '-shared',
             '-noipv6',
@@ -222,29 +290,18 @@ async function startVisualEnvironment() {
         });
 
         // 4. Start websockify
-        const websockifyCmd = fs.existsSync(WEBSOCKIFY_BIN) ? WEBSOCKIFY_BIN : 'websockify';
         console.log(`Starting websockify on port ${websockifyPort}...`);
-        const websockify = spawn(websockifyCmd, ['--web', NOVNC_PATH, String(websockifyPort), `127.0.0.1:${activeVncPort}`], { env: { ...process.env } });
+        const websockify = spawn(WebsockifyCmd || 'websockify', ['--web', NOVNC_PATH, String(websockifyPort), `127.0.0.1:${activeVncPort}`], { env: { ...process.env } });
         websockify.on('error', (err) => console.error('Websockify failed:', err.message));
         websockify.stdout.on('data', (d) => console.log('[websockify]', d.toString().trim()));
         websockify.stderr.on('data', (d) => console.error('[websockify]', d.toString().trim()));
 
         // 5. Launch Chromium with GPU rasterization enabled
-        const browserCandidates = [
-            path.join(__dirname, 'chrome', 'linux-150.0.7871.46', 'chrome-linux64', 'chrome'),
-            path.join(__dirname, 'chrome-headless-shell', 'linux-149.0.7827.54', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
-            '/usr/bin/google-chrome-stable',
-            '/usr/bin/google-chrome',
-            '/usr/bin/chromium',
-        ];
+        const browserCandidates = findBrowserCandidates();
 
         let binaryCmd = null;
         for (const candidate of browserCandidates) {
             if (!candidate || !fs.existsSync(candidate)) continue;
-            if (candidate.includes('chromium-browser')) {
-                const content = fs.readFileSync(candidate, 'utf8').slice(0, 80);
-                if (content.startsWith('#!')) continue;
-            }
             binaryCmd = candidate;
             break;
         }

@@ -4,6 +4,7 @@
   "main": "launcher.js",
   "scripts": {
     "start": "node launcher.js",
+    "docker-start": "docker build -t portable-chrome . && docker run --rm -p 5000:5000 -p 8081:8081 -p 8082:8082 portable-chrome",
     "install-chrome": "npx @puppeteer/browsers install chrome@stable"
   },
   "dependencies": {

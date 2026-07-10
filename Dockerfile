@@ -3,6 +3,7 @@ FROM node:24-bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:1
 ENV NODE_ENV=production
+ENV PORT=5000
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -37,20 +38,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl wget gnupg xvfb fluxbox x11vnc novnc python3 python3-websockify dbus-x11 procps >/dev/null 2>&1 || true
-
-
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --only=production
+RUN npm ci --only=production
 
 COPY . .
-
 RUN npm run install-chrome
 
 EXPOSE 5000 8081 8082 5900
 
-
-CMD ["npm", "start"]
 CMD ["node", "launcher.js"]

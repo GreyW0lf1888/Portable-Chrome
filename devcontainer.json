@@ -1,7 +1,7 @@
 {
     "name": "Visual Chromium Container Setup",
     "build": {
-        "dockerfile": "dockerfile"
+        "dockerfile": "Dockerfile"
     },
     // Only permit port 8080 to be exposed to the public link layer
     "forwardPorts": [8080],
