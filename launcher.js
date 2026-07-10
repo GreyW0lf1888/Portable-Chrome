@@ -20,9 +20,11 @@ const websockifyPort = Number(process.env.WEBSOCKIFY_PORT || 8081);
 const vncPort = Number(process.env.VNC_PORT || 8082);
 let activeVncPort = vncPort;
 
-const NOVNC_PATH = fs.existsSync(path.join(__dirname, 'novnc'))
-    ? path.join(__dirname, 'novnc')
-    : '/usr/share/novnc';
+const NOVNC_PATH = [
+    path.join(__dirname, 'novnc'),
+    '/usr/share/novnc',
+    '/usr/share/python3-novnc',
+].find((candidate) => candidate && fs.existsSync(candidate)) || '/usr/share/novnc';
 const WEBSOCKIFY_BIN = path.join(process.env.HOME || '/home/runner', 'workspace', '.pythonlibs', 'bin', 'websockify');
 
 function resolveBinary(...candidates) {
@@ -72,6 +74,7 @@ function findBrowserCandidates() {
         '/usr/bin/google-chrome-stable',
         '/usr/bin/google-chrome',
         '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
     ];
 
     const chromeRoot = path.join(__dirname, 'chrome');
@@ -133,6 +136,10 @@ app.all('/tracker', (req, res) => {
         console.log(`Payload content: ${req.body}`);
     }
     res.status(200).send({ status: "processed", activeDisplay: ":1" });
+});
+
+app.get('/healthz', (req, res) => {
+    res.status(200).send({ status: 'ok', port: currentPort, display: ':1' });
 });
 
 app.get('/', (req, res) => {
@@ -313,31 +320,32 @@ async function startVisualEnvironment() {
 
         console.log(`Launching browser with binary: ${binaryCmd}`);
         const chromium = spawn(binaryCmd, [
-            '--single-process',      
-            '--no-zygote',             
-            '--renderer-process-limit=1',
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
-            '--disable-features=VizDisplayCompositor,UseOzonePlatform,Translate,BackForwardCache',
             '--disable-extensions',
             '--disable-background-networking',
             '--disable-default-apps',
             '--disable-sync',
             '--no-first-run',
             '--no-default-browser-check',
-            '--window-size=1024,640',
+            '--window-size=1280,720',
             '--window-position=0,0',
             '--new-window',
             '--user-data-dir=/tmp/chrome-port-launcher-profile-' + process.pid,
-            '--remote-debugging-port=9222',
+            '--remote-debugging-port=0',
             '--disable-logging',
             '--log-level=0',
+            '--disable-features=VizDisplayCompositor,UseOzonePlatform,Translate,BackForwardCache,AudioServiceOutOfProcess',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
             'https://google.com'
-        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome' } });
+        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome', HOME: '/tmp' } });
         chromium.on('error', (err) => console.error('Chromium failed:', err.message));
+        chromium.on('exit', (code, signal) => console.error(`Chromium exited with code ${code} signal ${signal}`));
         chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
         chromium.stdout.on('data', (d) => console.log('[Chromium]', d.toString().trim()));
     } catch (err) {

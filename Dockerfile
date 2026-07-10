@@ -4,12 +4,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:1
 ENV NODE_ENV=production
 ENV PORT=5000
+ENV CHROME_BIN=/usr/bin/chromium
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     wget \
     gnupg \
+    chromium \
     xvfb \
     fluxbox \
     x11vnc \
@@ -36,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     libxss1 \
     libxtst6 \
+    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -44,8 +47,7 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 COPY . .
-RUN npm run install-chrome
 
-EXPOSE 5000 8081 8082 5900
+EXPOSE 5000
 
 CMD ["node", "launcher.js"]
