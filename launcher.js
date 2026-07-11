@@ -332,19 +332,28 @@ async function startVisualEnvironment() {
             '--disable-sync',
             '--no-first-run',
             '--no-default-browser-check',
-            '--window-size=1280,720',
+            '--window-size=1280,760',
             '--window-position=0,0',
+            '--force-device-scale-factor=0.9',
             '--new-window',
             '--user-data-dir=/tmp/chrome-port-launcher-profile-' + process.pid,
             '--remote-debugging-port=0',
             '--disable-logging',
             '--log-level=0',
-            '--disable-features=VizDisplayCompositor,UseOzonePlatform,Translate,BackForwardCache,AudioServiceOutOfProcess',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=Translate,BackForwardCache,OptimizationGuideModelDownloading,AudioServiceOutOfProcess',
             '--disable-background-timer-throttling',
             '--disable-renderer-backgrounding',
             '--disable-backgrounding-occluded-windows',
-            'https://google.com'
-        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome', HOME: '/tmp' } });
+            '--disable-client-side-phishing-detection',
+            '--disable-component-update',
+            '--metrics-recording-only',
+            '--password-store=basic',
+            '--lang=en-US,en',
+            '--accept-language=en-US,en;q=0.9',
+            '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'https://www.google.com'
+        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome', HOME: '/tmp', TZ: 'UTC', LANG: 'en_US.UTF-8', LANGUAGE: 'en_US:en' } });
         chromium.on('error', (err) => console.error('Chromium failed:', err.message));
         chromium.on('exit', (code, signal) => console.error(`Chromium exited with code ${code} signal ${signal}`));
         chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));
