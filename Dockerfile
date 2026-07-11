@@ -47,6 +47,7 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 COPY . .
+RUN npm run install-chrome
 
 EXPOSE 5000
 

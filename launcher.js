@@ -16,8 +16,8 @@ let currentPort = requestedPort;
 let server = null;
 let listenAttempts = 0;
 const maxListenAttempts = 10;
-const websockifyPort = Number(process.env.WEBSOCKIFY_PORT || 8081);
-const vncPort = Number(process.env.VNC_PORT || 8082);
+const websockifyPort = Number(process.env.WEBSOCKIFY_PORT || 6080);
+const vncPort = Number(process.env.VNC_PORT || 5900);
 let activeVncPort = vncPort;
 
 const NOVNC_PATH = [
@@ -70,12 +70,14 @@ if (!XvfbBinary || !FluxboxBinary || !X11VNCCmd || !WebsockifyCmd) {
 
 function findBrowserCandidates() {
     const candidates = [
+        process.env.CHROME_BIN,
+        process.env.PUPPETEER_EXECUTABLE_PATH,
         path.join(__dirname, 'chrome-headless-shell', 'linux-149.0.7827.54', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
         '/usr/bin/google-chrome-stable',
         '/usr/bin/google-chrome',
         '/usr/bin/chromium',
         '/usr/bin/chromium-browser',
-    ];
+    ].filter(Boolean);
 
     const chromeRoot = path.join(__dirname, 'chrome');
     if (fs.existsSync(chromeRoot)) {
@@ -101,11 +103,10 @@ app.use(express.text({ type: '*/*' }));
 
 // --- CRITICAL LINUX SYSTEM LOCK SANITISER ---
 try {
-    console.log("Purging legacy container processes and virtual display sockets...");
-    execSync(`ps -eo pid=,args= | awk '/node launcher.js/ && $1 != ${process.pid} {print $1}' | xargs -r kill -9`, { stdio: 'ignore' });
-    execSync('killall -9 Xvfb fluxbox x11vnc websockify python3 chromium chromium-browser chrome 2>/dev/null || true', { stdio: 'ignore' });
-    execSync('fuser -k 5000/tcp 8081/tcp 8082/tcp 5900/tcp 2>/dev/null || true', { stdio: 'ignore' });
-    execSync('rm -rf /tmp/.X1-lock /tmp/.X11-unix/X1 /tmp/.X11-unix/X0 2>/dev/null || true', { stdio: 'ignore' });
+    console.log("Preparing a clean display environment...");
+    execSync('rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 /tmp/.X11-unix/X0 2>/dev/null || true', { stdio: 'ignore' });
+    execSync("pkill -f 'Xvfb|fluxbox|x11vnc|websockify|chromium|chrome' 2>/dev/null || true", { stdio: 'ignore' });
+    execSync(`fuser -k ${requestedPort}/tcp ${websockifyPort}/tcp ${vncPort}/tcp 5900/tcp 6080/tcp 2>/dev/null || true`, { stdio: 'ignore' });
     console.log("Environment cleanup complete.");
 } catch (e) {}
 
