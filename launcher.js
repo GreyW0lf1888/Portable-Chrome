@@ -71,12 +71,12 @@ if (!XvfbBinary || !FluxboxBinary || !X11VNCCmd || !WebsockifyCmd) {
 function findBrowserCandidates() {
     const candidates = [
         process.env.CHROME_BIN,
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
         process.env.PUPPETEER_EXECUTABLE_PATH,
         path.join(__dirname, 'chrome-headless-shell', 'linux-149.0.7827.54', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
         '/usr/bin/google-chrome-stable',
         '/usr/bin/google-chrome',
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
     ].filter(Boolean);
 
     const chromeRoot = path.join(__dirname, 'chrome');
@@ -320,7 +320,20 @@ async function startVisualEnvironment() {
         }
 
         console.log(`Launching browser with binary: ${binaryCmd}`);
-        const chromium = spawn(binaryCmd, [
+
+        let availableMemMb = null;
+        try {
+            const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+            const match = meminfo.match(/MemAvailable:\s+(\d+)/);
+            if (match) {
+                availableMemMb = Math.floor(Number(match[1]) / 1024);
+            }
+        } catch (error) {
+            availableMemMb = null;
+        }
+
+        const lowMemoryMode = availableMemMb !== null && availableMemMb < 512;
+        const browserArgs = [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
@@ -332,9 +345,9 @@ async function startVisualEnvironment() {
             '--disable-sync',
             '--no-first-run',
             '--no-default-browser-check',
-            '--window-size=1280,760',
+            '--window-size=' + (lowMemoryMode ? '1024,600' : '1280,760'),
             '--window-position=0,0',
-            '--force-device-scale-factor=0.9',
+            '--force-device-scale-factor=' + (lowMemoryMode ? '0.85' : '0.9'),
             '--new-window',
             '--user-data-dir=/tmp/chrome-port-launcher-profile-' + process.pid,
             '--remote-debugging-port=0',
@@ -353,13 +366,18 @@ async function startVisualEnvironment() {
             '--disable-hang-monitor',
             '--disable-breakpad',
             '--disable-crash-reporter',
-            '--disable-dev-shm-usage',
-            '--disable-features=Translate,BackForwardCache,OptimizationGuideModelDownloading,AudioServiceOutOfProcess,MediaRouter,AutofillServerCommunication,InterestFeedContentSuggestions,CalculateNativeWinOcclusion',
+            '--disable-gpu-compositing',
+            '--disable-accelerated-2d-canvas',
+            '--disable-accelerated-video-decode',
+            '--disable-accelerated-mjpeg-decode',
             '--lang=en-US,en',
             '--accept-language=en-US,en;q=0.9',
             '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            ...(lowMemoryMode ? ['--single-process', '--no-zygote', '--memory-pressure-off', '--enable-low-end-device-mode', '--aggressive-cache-discard', '--disk-cache-size=10485760', '--media-cache-size=10485760'] : []),
             'https://www.google.com'
-        ], { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome', HOME: '/tmp', TZ: 'UTC', LANG: 'en_US.UTF-8', LANGUAGE: 'en_US:en' } });
+        ];
+
+        const chromium = spawn(binaryCmd, browserArgs, { env: { ...env1, DBUS_SESSION_BUS_ADDRESS: '', XDG_RUNTIME_DIR: '/tmp/runtime-chrome', HOME: '/tmp', TZ: 'UTC', LANG: 'en_US.UTF-8', LANGUAGE: 'en_US:en' } });
         chromium.on('error', (err) => console.error('Chromium failed:', err.message));
         chromium.on('exit', (code, signal) => console.error(`Chromium exited with code ${code} signal ${signal}`));
         chromium.stderr.on('data', (d) => console.error('[Chromium]', d.toString().trim()));

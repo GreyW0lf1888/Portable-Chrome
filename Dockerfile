@@ -39,7 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     libxtst6 \
     xauth \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
+
+RUN dd if=/dev/zero of=/swapfile bs=1M count=256 status=none && \
+    chmod 600 /swapfile && \
+    (mkswap /swapfile 2>/dev/null || true) && \
+    (swapon /swapfile 2>/dev/null || true)
 
 WORKDIR /app
 
